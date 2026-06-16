@@ -356,26 +356,14 @@ def run_automated_tasks():
     safe_print("🚀 RUNNING IN AUTOMATED MODE ON RENDER")
     safe_print("=" * 60)
     
-    # You can configure which tasks to run here
-    tasks_to_run = [
-        # Uncomment tasks you want to run automatically
-        # "clone",
-        # "email",
-        # "credentials",
-        # "logs"
-    ]
+    # 🔥 HARDCODED TASKS - No environment variables needed!
+    tasks_to_run = ['clone', 'email']  # Change this to what you want
     
-    # If no tasks specified, run default
-    if not tasks_to_run:
-        safe_print("ℹ️ No automated tasks configured. Use Render environment variables to configure.")
-        safe_print("📋 Available tasks: clone, email, credentials, logs")
-        safe_print("📝 Example: Set environment variable AUTO_TASKS=clone,email")
-        return
+    # Optional: Change the URL to clone
+    default_url = "https://example.com"  # Change this to your target URL
     
-    # Run specified tasks
     for task in tasks_to_run:
         if task == "clone":
-            default_url = os.environ.get('CLONE_URL', 'https://example.com')
             safe_print(f"\n[Task] Cloning website: {default_url}")
             clone_website(default_url)
         elif task == "email":
@@ -396,7 +384,7 @@ def main():
     
     # Check if we're in interactive mode
     interactive = is_interactive_environment()
-    
+     
     # Show warning only in interactive mode
     if interactive:
         safe_print("""
