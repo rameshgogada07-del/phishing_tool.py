@@ -336,7 +336,7 @@ def main():
     [WARNING] Educational & Authorized Testing Only!
     Unauthorized use is ILLEGAL.
     """)
-    input("Press Enter to continue...")
+   
 
     while True:
         safe_print("""
@@ -391,7 +391,7 @@ def main():
         except Exception as e:
             safe_print(f"[ERROR] {e}")
 
-        input("\nPress Enter to continue...")
+    
 
 if __name__ == "__main__":
     main()
